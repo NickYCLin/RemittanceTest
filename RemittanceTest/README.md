@@ -24,6 +24,47 @@
 5. **架構問答 (請直接回答於下方)**
    - 雖然本測試使用 In-Memory List 模擬資料庫，但在正式的 SQL Server 環境中，您會如何撰寫 T-SQL 或 Entity Framework Core 程式碼，來確保「多個使用者同時對同一筆資料按下取消」時，不會發生 Race Condition？
    - **您的回答：** (請在此作答...)
+T-SQL: 我會用條件式處理取消動作，讓資料庫在同一個UPDATE陳述式裡同時完成狀態檢查與狀態的更新。只有目前狀態仍是0的資料，才會被更新為9，再透過筆數判斷是否成功。
+```
+BEGIN TRANSACTION;
+
+UPDATE Remittances WITH (UPDLOCK, ROWLOCK)
+SET
+	Status = 9,
+	UpdatedAt = SYSUTCDATETIME()
+WHERE Id = @Id
+AND Status = 0;
+
+IF @@ROWCOUNT = 1
+BEGIN
+	COMMIT TRANSACTION;
+	SELECT 1 AS IsSuccess, N'匯款資料已成功取消。' AS Message;
+END
+ELSE
+BEGIN
+	ROLLBACK TRANSACTION;
+
+	IF EXISTS (SELECT 1 FROM Remittances WHERE Id = @Id)
+		SELECT 0 AS IsSuccess, N'只有待覆核狀態的匯款資料可以取消。' AS Message;
+	ELSE
+		SELECT 0 AS IsSuccess, N'找不到指定的匯款資料。' AS Message;
+END
+```
+Entity Framework Core: 我會使用ExecuteUpdateAsync產生同樣概念的條件式更新
+```
+var affectedRows = await dbContext.Remittances
+    .Where(remittance => remittance.Id == id && remittance.Status == 0)
+    .ExecuteUpdateAsync(setters => setters
+        .SetProperty(remittance => remittance.Status, 9)
+        .SetProperty(remittance => remittance.UpdatedAt, DateTime.UtcNow));
+
+if (affectedRows == 1)
+{
+    return CancelRemittanceStatus.Success;
+}
+```
+做法的重點是不要先查詢再更新，因為查詢完成與更新送出之間，可能被其他請求插隊，所以將條件放入`UPDATE ... WHERE Status = 0`
+讓SQL Server同一時間只有第一個成功符合的請求才能完成取消，其餘的請求會因影響筆數為0，而被視為狀態已變更或是不可取消。
 
 ## 提交要求
 1. 請使用 GitHub Public Repository 提交。
