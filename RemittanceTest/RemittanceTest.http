@@ -1,0 +1,13 @@
+@RemittanceTest_HostAddress = http://localhost:5000
+
+### 取得匯款清單
+GET {{RemittanceTest_HostAddress}}/api/remittance
+Accept: application/json
+
+### 測試取消作業 (正確情境：狀態為 0)
+POST {{RemittanceTest_HostAddress}}/api/remittance/1/cancel
+Content-Type: application/json
+
+### 測試取消作業 (異常情境：狀態不為 0，應報錯)
+POST {{RemittanceTest_HostAddress}}/api/remittance/2/cancel
+Content-Type: application/json
